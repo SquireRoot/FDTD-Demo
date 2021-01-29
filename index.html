@@ -1,0 +1,162 @@
+ <!DOCTYPE html>
+
+<! 3D FDTD Model                	>
+<!                                  >
+<! Author:  Evan Newman           	>
+<! Contact: evanmnewman1@gmail.com  >
+
+<html>
+<head>
+
+<meta charset="UTF-8">
+<title>3D FDTD Model</title>
+
+<script src='Abubu.js' type='text/javascript'></script>
+<script src='shaders.js' type='text/javascript'></script>
+<script src='CameraLib.js' type='text/javascript'></script>
+
+</head>
+
+<body>
+<canvas  id="main-canvas" 
+         width=512 height=512
+         style="border:1px solid #000000;" >
+   <!-- This message is displayed if canvas is not available -->
+   Your browser does not support the HTML5 canvas tag.
+</canvas>
+
+<script>
+
+	console.log('--- 3D Cloth Simulation by Evan Newman ---');
+
+	var modelParams = {
+		epsilon: 1,
+		sigma: 1,
+		mu: 1,
+		sigmaM: 1,
+
+		size: 128,
+		mappedSize: 2048,
+
+		dt: 1,
+		dx: 1,
+
+		renderInterval: 2,
+
+		displayWidth: 2048,
+		displayHeight: 2048,
+	}
+
+	var mainCanvas = document.getElementById('main-canvas');
+	mainCanvas.width = modelParams.displayWidth;
+	mainCanvas.height = modelParams.displayHeight;
+
+	// var camera = new CameraMatrixController();
+	// CameraMatrixController.addListeners(mainCanvas);
+
+	var init_E_x_y_z = new Float32Array(4*modelParams.mappedSize*modelParams.mappedSize);
+	var init_H_x_y_z = new Float32Array(4*modelParams.mappedSize*modelParams.mappedSize);
+	
+	for (var x = 0; x < modelParams.mappedSize; x++) {
+		for (var y = 0; y < modelParams.mappedSize; y++) {
+			init_E_x_y_z[4*(y*modelParams.mappedSize + x)] = 1.0;
+		}
+	} 
+
+
+	var e_E_x_y_z = new Abubu.Float32Texture(modelParams.mappedSize,
+										modelParams.mappedSize,
+										{data: init_E_x_y_z});
+	var o_E_x_y_z = new Abubu.Float32Texture(modelParams.mappedSize,
+										modelParams.mappedSize,
+										{data: init_E_x_y_z});
+	var e_H_x_y_z = new Abubu.Float32Texture(modelParams.mappedSize,
+									   	modelParams.mappedSize,
+										{data: init_H_x_y_z});
+	var o_H_x_y_z = new Abubu.Float32Texture(modelParams.mappedSize,
+									   	modelParams.mappedSize,
+										{data: init_H_x_y_z});
+		
+	var HUpdater = new Abubu.Solver({
+		vertexShader: passThroughVS,
+		fragmentShader: HUpdaterFS,
+		uniforms: {
+			E_x_y_z: {type: 't', value: e_E_x_y_z},
+			in_H_x_y_z: {type: 't', value: e_H_x_y_z},
+			mu: {type: 'f', value: modelParams.mu},
+			sigmaM: 	 {type: 'f', value: modelParams.sigmaM},
+
+			dt:      {type: 'f', value: modelParams.dt},
+			dx:      {type: 'f', value: modelParams.dx},
+		},
+		renderTargets: {
+			out_H_x_y_z: {location: 0, target: o_H_x_y_z}
+		}
+	});									
+	
+	var EUpdater = new Abubu.Solver({
+		vertexShader: passThroughVS,
+		fragmentShader: EUpdaterFS,
+		uniforms: {
+			in_E_x_y_z: {type: 't', value: e_E_x_y_z},
+			H_x_y_z: {type: 't', value: o_H_x_y_z},
+			epsilon: {type: 'f', value: modelParams.epsilon},
+			sigma: 	 {type: 'f', value: modelParams.sigma},
+
+			dt:      {type: 'f', value: modelParams.dt},
+			dx:      {type: 'f', value: modelParams.dx},
+		},
+		renderTargets: {
+			out_E_x_y_z: {location: 0, target: o_E_x_y_z}
+		}
+	});
+
+	var plt = new Abubu.Plot2D({
+		target: e_E_x_y_z,
+		channel: 'r',
+		minValue: -1,
+		maxValue: 1,
+		colorbar: true,
+		canvas: mainCanvas
+	})
+	plt.init();
+
+	var timestep = 0;
+	var render = function() {
+		for (var i = 0; i < modelParams.renderInterval; i++) {
+			if (timestep % 2 === 0) {
+				HUpdater.setUniform('E_x_y_z', e_E_x_y_z);
+				HUpdater.setUniform('in_H_x_y_z', e_H_x_y_z);
+				HUpdater.setRenderTarget('out_H_x_y_z', o_H_x_y_z);
+
+				EUpdater.setUniform('in_E_x_y_z', e_E_x_y_z);
+				EUpdater.setUniform('H_x_y_z', o_H_x_y_z);
+				EUpdater.setRenderTarget('out_E_x_y_z', o_E_x_y_z);
+			} else {
+				HUpdater.setUniform('E_x_y_z', o_E_x_y_z);
+				HUpdater.setUniform('in_H_x_y_z', o_H_x_y_z);
+				HUpdater.setRenderTarget('out_H_x_y_z', e_H_x_y_z);
+
+				EUpdater.setUniform('in_E_x_y_z', o_E_x_y_z);
+				EUpdater.setUniform('H_x_y_z', e_H_x_y_z);
+				EUpdater.setRenderTarget('out_E_x_y_z', e_E_x_y_z);
+			}
+
+			HUpdater.render();
+			EUpdater.render();
+
+			timestep++;
+		}
+
+		//camera.updateCameraMatrix();
+		//sheetPlotter.setUniform("cameraMatrix", camera.getCameraMatrix());
+		plt.render();
+
+		requestAnimationFrame(render);
+	}
+	render();
+
+</script>
+
+</body>
+</html>
